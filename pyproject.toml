@@ -1,0 +1,6 @@
+[project]
+name = "qimeng-agent"
+version = "0.1.0"
+description = "A minimal web and terminal agent for AI in Research homework"
+requires-python = ">=3.11"
+dependencies = ["certifi>=2024.2.2"]
