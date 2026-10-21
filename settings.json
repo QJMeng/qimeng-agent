@@ -1,0 +1,10 @@
+{
+  "allow": [
+    "telegram__send_message",
+    "seismic__search_earthquakes",
+    "seismic__summarize_catalog",
+    "seismic__get_event_details",
+    "seismic__summarize_mechanisms",
+    "seismic__calculate_b_value"
+  ]
+}

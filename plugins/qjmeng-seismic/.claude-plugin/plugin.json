@@ -1,0 +1,6 @@
+{
+  "name": "qjmeng-seismic",
+  "version": "0.1.0",
+  "description": "Query USGS earthquake catalogs and summarize depths, focal mechanisms, and Gutenberg-Richter b values.",
+  "author": {"name": "QJMeng"}
+}

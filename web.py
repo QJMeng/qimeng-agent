@@ -5,14 +5,17 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from bash_tool import TOOL, WORKDIR, run_bash
-from check_api import request
+from bash_tool import WORKDIR
+from check_api import config
+from agent_core import Agent
+from plugin_loader import Plugins
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = secrets.token_urlsafe(32)
 lock = threading.Condition()
 events = []
-messages = [{'role': 'system', 'content': (ROOT / 'system_prompt.md').read_text()}]
+messages = []
+agent = None
 busy = False
 pending = None
 
@@ -20,54 +23,23 @@ def emit(kind, **data):
     with lock:
         events.append({'kind': kind, **data})
 
-def tool(call):
+def approve(name, arguments, call_id):
     global pending
-    try:
-        command = json.loads(call['function']['arguments'])['command']
-        if call['function']['name'] != 'bash' or not isinstance(command, str) or not command.strip():
-            raise ValueError('Invalid bash call')
-    except (ValueError, KeyError, TypeError):
-        return 'Invalid tool arguments.'
     with lock:
-        pending = {'id': call['id'], 'decision': None}
-        emit('command', id=call['id'], command=command)
+        pending = {'id': call_id, 'decision': None}
+        display = arguments.get('command') if name == 'bash' else name + '\n' + json.dumps(arguments, ensure_ascii=False)
+        emit('command', id=call_id, command=display)
         decided = lock.wait_for(lambda: pending['decision'] is not None, timeout=300)
-        approved = decided and pending['decision']
+        approved = bool(decided and pending['decision'])
         pending = None
-    if approved:
-        try:
-            result = run_bash(command)
-        except OSError as error:
-            result = json.dumps({'error': str(error)})
-    else:
-        result = 'The user declined to run this command.'
-    emit('result', id=call['id'], text=result)
-    return result
+        return approved
 
 def turn(question):
     global busy
-    messages.append({'role': 'user', 'content': question})
     try:
-        for number in range(21):
-            reply = request({'messages': messages, 'tools': [TOOL],
-                             'tool_choice': 'none' if number == 20 else 'auto'},
-                            on_usage=lambda usage: emit('usage', usage=usage))
-            messages.append(reply)
-            calls = reply.get('tool_calls', [])
-            if not calls:
-                emit('assistant', text=reply.get('content') or '(No text response)')
-                break
-            for call in calls:
-                result = tool(call) if number < 20 else 'Tool round limit reached.'
-                messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': result})
-        else:
-            emit('error', text='Tool round limit reached.')
+        agent.turn(messages, question, on_event=emit)
     except (Exception, SystemExit):
-        emit('error', text='The API request failed. Check the server terminal for details and retry.')
-        # Complete any unanswered calls so the next request has valid history.
-        if messages[-1].get('tool_calls'):
-            for call in messages[-1]['tool_calls']:
-                messages.append({'role':'tool','tool_call_id':call['id'],'content':'Request interrupted.'})
+        emit('error', text='The request failed. Check local configuration and retry.')
     finally:
         with lock:
             busy = False
@@ -109,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 32000:
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError()
         except (ValueError, TypeError):
             return self.respond(400, {'error':'Invalid request'})
         with lock:
@@ -131,6 +105,14 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(200, {'ok': True})
 
 if __name__ == '__main__':
-    print('Open http://127.0.0.1:8765 in your browser.')
-    print('Working directory:', WORKDIR)
-    ThreadingHTTPServer(('127.0.0.1', 8765), Handler).serve_forever()
+    with Plugins(config) as plugins:
+        plugins.announce()
+        agent = Agent(plugins, approve=approve)
+        messages = agent.messages()
+        print('Open http://127.0.0.1:8765 in your browser.')
+        print('Working directory:', WORKDIR)
+        with ThreadingHTTPServer(('127.0.0.1', 8765), Handler) as server:
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass

@@ -4,6 +4,17 @@ from unittest.mock import patch
 
 import main
 import bash_tool
+from agent_core import Agent
+
+class BaselinePlugins:
+    tools = []
+    routes = {}
+    def skill_prompt(self):
+        return ''
+    def redact(self, text):
+        return text
+
+agent = Agent(BaselinePlugins())
 
 def conversation():
     return [{'role': 'system', 'content': (main.ROOT / 'system_prompt.md').read_text()}]
@@ -11,7 +22,7 @@ def conversation():
 def ask(messages, question):
     print('\nYou:', question)
     messages.append({'role': 'user', 'content': question})
-    main.agent_turn(messages)
+    agent.turn(messages)
 
 def tool_results(messages):
     return [item['content'] for item in messages if item['role'] == 'tool']

@@ -1,0 +1,6 @@
+{
+  "name": "qjmeng-telegram",
+  "version": "0.1.0",
+  "description": "Send and receive Telegram text messages in one configured private chat.",
+  "author": {"name": "QJMeng"}
+}
